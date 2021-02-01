@@ -1,0 +1,658 @@
+# Social inequality in England 
+
+
+## Datasets checking
+
+### Load basic package
+
+```{r}
+library(sp)
+library(maptools)
+library(tmap)
+library(sf)
+library(tmaptools)
+library(tidyverse)
+library(janitor)
+library(spdep)
+library(spatstat)
+library(plyr)
+library(stats)
+library(corrr)
+library(car)
+library(tidymodels)
+```
+
+
+
+## load and clean .csv datasets
+
+### load obesity.csv file
+
+The applied Obesity Dataset is from NHS Digital (2020), called statistics on obesity in England, covering the obesity cases classified by hospitals from 2009 to 2019. The observations have been clearly organized based on gender and local authorities of England.
+https://digital.nhs.uk/data-and-information/publications/statistical/statistics-on-obesity-physical-activity-and-diet/england-2020/data-tables 
+
+```{r}
+obesity <- read_csv("datasets/obesity_england.csv")
+summary(obesity)
+```
+
+
+
+## load and clean shapefile dataset
+
+### load shapefile
+
+```{r}
+la <- st_read("datasets/gadm36_GBR_shp/gadm36_GBR_2.shp") %>% 
+  st_transform(., 27700) %>% 
+  clean_names()
+```
+
+### only remain the data for England
+
+```{r}
+unique(la$name_1)
+```
+```{r}
+england_la <- la[la$name_1=="England",]%>% 
+  dplyr::select(., c(6, 7, 14)) 
+```
+
+## merge shapefile and .csv file of England
+
+```{r}
+england_obesity <- england_la %>% 
+  left_join(., obesity,
+            by=c("name_2"="X3")) %>% 
+  dplyr::select(., c(2, 3, 5, 6, 7, 9, 10, 11, 12)) %>% 
+  clean_names()
+```
+```{r}
+colnames(england_obesity)
+```
+
+```{r}
+# tmap to observe overall condition
+breaks = c(-Inf, 500, 1000, 1500, 2000, 2500, 3000, 3500, +Inf) 
+tm1 <- tm_shape(england_obesity) +
+  tm_polygons("all_persons_per_100_000_of_population",
+              breaks=breaks,
+              palette=RColorBrewer::brewer.pal(8, "Reds"),
+              midpoint=NA,
+              lwd = 0.1,
+              title="Density of obese people in England \n(per 100,000 population)")+
+  tm_scale_bar(position=c('right','bottom'), text.size=0.4)+
+  tm_compass(north=0, position=c('left','top'))+
+  tm_layout(title = "Obese Population Density", 
+            title.size=0.8,
+            legend.text.size = 0.5,
+            legend.outside = TRUE,
+            frame=FALSE)
+```
+```{r}
+tm_shape(england_obesity) +
+  tm_polygons("all_persons_per_100_000_of_population",
+              breaks=breaks,
+              palette=RColorBrewer::brewer.pal(8, "Reds"),
+              midpoint=NA,
+              lwd = 0.1,
+              title="Density of obese people in England \n(per 100,000 population)")+
+  tm_scale_bar(position=c('right','bottom'), text.size=0.4)+
+  tm_compass(north=0, position=c('left','top'))+
+  tm_layout(title = "Obese Population Density", 
+            title.size=0.8,
+            legend.text.size = 0.5,
+            legend.outside = TRUE,
+            frame=FALSE)
+```
+
+```{r}
+imd <- read_csv("datasets/IMD2019_Index_of_Multiple_Deprivation.csv") %>%
+  clean_names()
+summary(imd)
+```
+
+
+```{r}
+la_imd <- imd %>% 
+  group_by(local_authority_district_code_2019) %>% 
+  summarize_each(funs(mean), 'index_of_multiple_deprivation_imd_decile')
+```
+```{r}
+lad <- st_read("datasets/Local_Authority_Districts__December_2017__Boundaries_GB_BFC-shp/Local_Authority_Districts__December_2017__Boundaries_GB_BFC.shp") %>% 
+  st_transform(., 27700) %>% 
+  clean_names()
+```
+
+
+```{r}
+imd_lad <- lad %>% 
+  left_join(la_imd,.,
+            by=c("local_authority_district_code_2019"="lad17cd")) %>%
+  dplyr::select(., c(1, 2, 13)) %>% 
+  clean_names()
+```
+
+
+```{r}
+colnames(imd_lad)
+imd_lad <-  st_as_sf(imd_lad, crs=st_crs(lad))
+```
+
+```{r}
+# tmap to observe overall condition
+breaks = c(-Inf, 3, 4, 5, 6, 7, 8, 9, +Inf) 
+tm2 <- tm_shape(imd_lad) +
+  tm_polygons('index_of_multiple_deprivation_imd_decile',
+              breaks=breaks,
+              palette=RColorBrewer::brewer.pal(8, "RdYlBu"),
+              midpoint=NA,
+              title="IMD score in England",
+              lwd = 0.1)+
+  tm_scale_bar(position=c('right','bottom'), text.size=0.4)+
+  tm_compass(north=0, position=c('left','top'))+
+  tm_layout(title = "IMD level in England", 
+            title.size=0.8,
+            legend.text.size = 0.5,
+            legend.outside = TRUE,
+            frame=FALSE)
+```
+```{r}
+breaks = c(-Inf, 3, 4, 5, 6, 7, 8, 9, +Inf) 
+tm_shape(imd_lad) +
+  tm_polygons('index_of_multiple_deprivation_imd_decile',
+              breaks=breaks,
+              palette=RColorBrewer::brewer.pal(8, "RdYlBu"),
+              midpoint=NA,
+              title="IMD score in England",
+              lwd = 0.1)+
+  tm_scale_bar(position=c('right','bottom'), text.size=0.4)+
+  tm_compass(north=0, position=c('left','top'))+
+  tm_layout(title = "IMD level in England", 
+            title.size=0.8,
+            legend.text.size = 0.5,
+            legend.outside = TRUE,
+            frame=FALSE)
+```
+
+
+
+
+```{r}
+t_density <- tmap_arrange(tm1, tm2, ncol=2)
+t_density
+```
+### save density mapping
+
+```{r}
+tmap_save(t_density, 'pic/obese population density.png', width=7, height=3)
+```
+```{r}
+tmap_save(tm1, 'pic/obese population.png', width=10, height=10)
+```
+```{r}
+tmap_save(tm2, 'pic/IMD.png', width=10, height=10)
+```
+
+```{r}
+fastfood <- read_csv("datasets/FastFoodMetadata_LA_Ward.csv") %>%
+  clean_names()
+summary(fastfood)
+```
+```{r}
+fast_lad <- lad %>% 
+  left_join(fastfood,.,
+            by=c("la_code"="lad17cd")) %>% 
+  dplyr::select(.,c(2, 5, 16)) %>% 
+  clean_names()
+colnames(fast_lad)
+fast_lad <-  st_as_sf(fast_lad, crs=st_crs(lad))
+```
+
+
+```{r}
+breaks = c(-Inf, 45, 55, 65, 75, 85, 95, 105,+Inf) 
+tm3 <- tm_shape(fast_lad) +
+  tm_polygons('rate_per_100_000_population',
+              breaks=breaks,
+              palette=RColorBrewer::brewer.pal(8, "Reds"),
+              midpoint=NA,
+              title="Rate per 100,000 population",
+              lwd = 0.1)+
+  tm_scale_bar(position=c('right','bottom'), text.size=0.4)+
+  tm_compass(north=0, position=c('left','top'))+
+  tm_layout(title = "Density of fast food outlets \n                         in England", 
+            title.size=0.8,
+            legend.text.size = 0.5,
+            legend.outside = TRUE,
+            frame=FALSE)
+```
+
+```{r}
+tmap_save(tm3, 'pic/fast_food.png', width=10, height=10)
+```
+
+
+#Preparations
+
+##Clear workspace and install necessary packages
+
+```{r}
+cat("
+library(rstudioapi)
+library(tidyverse) # ggplot2, dplyr, tidyr, readr, purrr, tibble
+library(magrittr) # pipes
+library(lintr) # code linting
+library(sf) # spatial data handling
+library(raster) # raster handling (needed for relief)
+library(viridis) # viridis color scale
+library(cowplot) # stack ggplots
+library(rmarkdown)",
+file = "manifest.R")
+```
+
+```{r}
+source("manifest.R")
+unlink("manifest.R")
+sessionInfo()
+```
+
+
+#Create a Univariate Choropleth
+
+## Define theme parameters
+
+```{r}
+theme_map <- function (base_size = 12, base_family = "") {
+    theme_gray(base_size = base_size, base_family = base_family) %+replace% 
+        theme(
+            axis.line=element_blank(),
+            axis.text.x=element_blank(),
+            axis.text.y=element_blank(),
+            axis.ticks=element_blank(),
+            axis.ticks.length=unit(0.3, "lines"),
+            axis.ticks.margin=unit(0.5, "lines"),
+            axis.title.x=element_blank(),
+            axis.title.y=element_blank(),
+            legend.key=element_rect(colour="white"),
+            legend.key.size=unit(1.2, "lines"),
+            legend.position="right",
+            legend.text = element_text(size = 9, hjust = 0),
+            # add a subtle grid
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            # titles
+            legend.title = element_text(size = 11,face="bold", hjust=0),
+            # background colors
+            panel.background = element_blank(),
+            legend.background = element_blank(),
+            # borders and margins
+            plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+            panel.border=element_blank(),
+            panel.spacing = unit(c(-.1, 0.2, .2, 0.2), "cm"),
+            panel.margin=unit(0, "lines"),
+            plot.background=element_blank(),
+            plot.title=element_text(size = 15, hjust = 0.5,face="bold"),
+            plot.subtitle = element_text(size = 10, hjust = 0.5,
+                                 margin = margin(b = -0.1,
+                                                 t = -0.1,
+                                                 l = 2,
+                                                 unit = "cm"),
+                                 debug = F),
+            # captions
+            plot.caption = element_text(size = 10,
+                                        hjust = .5,
+                                        margin = margin(t = 0.2,
+                                                        b = 0,
+                                                        unit = "cm"),
+                                        color = "#939184")
+        )
+}
+```
+
+## Define the quantile label
+
+```{r}
+# define number of classes
+no_classes <- 6
+
+# extract quantiles
+quantiles <- fast_lad %>%
+  pull(rate_per_100_000_population) %>%
+  quantile(probs = seq(0, 1, length.out = no_classes + 1)) %>%
+  as.vector() # to remove names of quantiles, so idx below is numeric
+
+# here we create custom labels
+labels <- imap_chr(quantiles, function(., idx){
+  return(paste0(round(quantiles[idx] ),
+                             "",
+                             " – ",
+                             round(quantiles[idx + 1]),
+                             ""))
+})
+
+# we need to remove the last label 
+# because that would be something like "n - NA"
+labels <- labels[1:length(labels) - 1]
+
+# here we actually create a new 
+# variable on the dataset with the quantiles
+fast_lad %<>%
+  mutate(mean_quantiles = cut(rate_per_100_000_population,
+                              breaks = quantiles,
+                              labels = labels,
+                              include.lowest = T))
+
+```
+```{r}
+quantiles2 <- imd_lad %>%
+  pull(index_of_multiple_deprivation_imd_decile) %>%
+  quantile(probs = seq(0, 1, length.out = no_classes + 1)) %>%
+  as.vector() 
+
+# here we create custom labels
+labels2 <- imap_chr(quantiles2, function(., idx){
+  return(paste0(round(quantiles2[idx] ),
+                             "",
+                             " – ",
+                             round(quantiles2[idx + 1]),
+                             ""))
+})
+
+# we need to remove the last label 
+# because that would be something like "478k - NA"
+labels2 <- labels2[1:length(labels2) - 1]
+```
+
+## Merge the IMD data and fast food datasets
+
+```{r}
+imd_lad %<>%
+  mutate(quantiles = cut(index_of_multiple_deprivation_imd_decile,
+                         breaks = quantiles2,
+                         labels = labels2,
+                         include.lowest = T))
+```
+```{r}
+imd_lad <- imd_lad %>% 
+  mutate(verse = 10-index_of_multiple_deprivation_imd_decile)
+```
+```{r}
+data <- fast_lad %>% 
+  left_join(., la_imd,
+            by = c("la_code"="local_authority_district_code_2019"))
+```
+```{r}
+colnames(data)
+```
+
+## Manage missing data (regression model)
+
+```{r}
+# We will be using mice library in r
+library(mice)
+mindata <- data %>% 
+  dplyr::select(., c(2, 5))%>% 
+  st_drop_geometry()
+# Deterministic regression imputation via mice
+```
+```{r}
+type <- mindata %>% 
+  summarise_all(class) %>% 
+  pivot_longer(everything(),
+               names_to="all_variables",
+               values_to="variable_class")
+type
+```
+```{r}
+imp <- mice(mindata, method = "norm.predict", m = 1)
+
+# Store data
+data_imp <- complete(imp)
+```
+
+## Merge the original dataset to the new dataset filling in missing data using regression
+
+```{r}
+data <- data %>% 
+  dplyr::select(., c(1, 2, 3, 4))%>% 
+  cbind(., data_imp)
+```
+
+## Make higher value the more deprived regions
+
+```{r}
+data <- data %>% 
+  mutate(verse = 10-index_of_multiple_deprivation_imd_decile)
+```
+
+## Map fast food outlets distribution
+
+```{r}
+ggplot(
+  # define main data source
+  data = data
+) +
+  geom_sf(
+    mapping = aes(
+      fill = mean_quantiles
+      ),
+    color = "white",
+    size = 0.1
+  ) +
+  # use the Viridis color scale
+  scale_fill_viridis(
+    option = "magma",
+    name = "Rate per 100,000 population",
+    alpha = 0.8, # make fill a bit brighter
+    begin = 0.1, 
+    # with this we can truncate the color scale, so that extreme colors (very dark and very bright) are not used, which makes the map a bit more aesthetic
+    end = 0.9,
+    discrete = T, # discrete classes, thus guide_legend instead of _colorbar
+    direction = -1, # dark is highest, yellow is lowest
+    guide = guide_legend(
+      keyheight = unit(5, units = "mm"),
+      title.position = "top",
+      reverse = T # display highest number on top
+  )) +
+
+  # add titles
+  labs(x = NULL,
+       y = NULL,
+       title = "Density of Fast food outlets in England",
+       subtitle = "\n Fast food outlets by local authority of England in 2017")+
+  theme_map()
+```
+```{r}
+ggsave("pic/fast food.jpg")
+```
+
+## Map IMD distribution
+
+```{r}
+ggplot(
+  # define main data source
+  data = imd_lad
+) +
+  geom_sf(
+    mapping = aes(
+      fill = quantiles
+      ),
+    color = "white",
+    size = 0.1
+  ) +
+  # use the Viridis color scale
+  scale_fill_viridis(
+    option = "magma",
+    name = "IMD score for England local authorities",
+    alpha = 0.8, # make fill a bit brighter
+    begin = 0.1, # this option seems to be new (compared to 2016):
+    # with this we can truncate the
+    # color scale, so that extreme colors (very dark and very bright) are not
+    # used, which makes the map a bit more aesthetic
+    end = 0.9,
+    discrete = T,
+    direction = 1, # dark is lowest, yellow is highest
+    guide = guide_legend(
+      keyheight = unit(5, units = "mm"),
+      title.position = "top",
+      reverse = T # display highest score on top
+  )) +
+
+  # add titles
+  labs(x = NULL,
+       y = NULL,
+       title = "Deprivation level in England",
+       subtitle = "\n Index of multiple deprivation by local authority of England")+
+  theme_map()
+```
+```{r}
+ggsave("pic/imd.jpg")
+```
+```{r}
+# create color scale that encodes two variables
+# red for fast food and blue for deprivation level
+# the special notation with gather is due to readibility reasons
+bivariate_color_scale <- tibble(
+  "3 - 3" = "#3F2949", # high fast food, high deprivation
+  "2 - 3" = "#435786",
+  "1 - 3" = "#4885C1", # low fast food, high deprivation
+  "3 - 2" = "#77324C",
+  "2 - 2" = "#806A8A", # medium fast food, medium deprivation
+  "1 - 2" = "#89A1C8",
+  "3 - 1" = "#AE3A4E", # high fast food, low deprivation
+  "2 - 1" = "#BC7C8F",
+  "1 - 1" = "#CABED0" # low fast food, low deprivation
+) %>%
+  gather("group", "fill")
+```
+
+```{r}
+# create 3 buckets for fast food
+quantiles_fast <- fast_lad %>%
+  pull(rate_per_100_000_population) %>%
+  quantile(probs = seq(0, 1, length.out = 4))
+
+# create 3 buckets for deprivation
+quantiles_imd <- imd_lad %>%
+  pull(verse) %>%
+  quantile(probs = seq(0, 1, length.out = 4))
+#seq(1,10,length.out=11) #等价于 seq(1,10,length=11)
+
+```
+
+```{r}
+# cut into groups defined above and join fill
+data %<>%
+  mutate(
+    fast_quantiles = cut(
+      rate_per_100_000_population,
+      breaks = quantiles_fast,
+      include.lowest = TRUE
+    ),
+    imd_quantiles = cut(
+      verse,
+      breaks = quantiles_imd,
+      include.lowest = TRUE
+    ),
+    # by pasting the factors together as numbers we match the groups defined
+    # in the tibble bivariate_color_scale
+    group = paste(
+      as.numeric(fast_quantiles), "-",
+      as.numeric(imd_quantiles)
+    )
+  ) %>%
+  # we now join the actual hex values per "group"
+  # so each local authority knows its hex value based on the fast food and deprivation level
+  left_join(bivariate_color_scale, by = "group")
+```
+
+## Save the final data
+
+```{r}
+data_dropgeo <- data %>% 
+  st_drop_geometry()
+write.table(data_dropgeo,"datasets/data.csv",row.names=FALSE,col.names=TRUE,sep=",")
+```
+
+## Map the combination
+
+```{r}
+map <- ggplot(
+  # use the same dataset as before
+  data = data
+  ) +
+
+  # color authorities according to their combination
+  geom_sf(
+    aes(
+      fill = fill
+    ),
+    # use thin white stroke for local authority
+    color = "white",
+    size = 0.1
+  ) +
+  # scale_fill_identity: "fill" contains the literal color as hex code for each local authority
+  scale_fill_identity() +
+  # add titles
+  labs(x = NULL,
+       y = NULL,
+       title = "Health environment inequality in England",
+       subtitle = paste0("\nFast food outlets distribution",
+                         " & deprivation level in England"))+
+  theme_map()
+map
+```
+```{r}
+ggsave("pic/combination.jpg")
+```
+
+# Draw the Legend
+
+```{r}
+# separate the groups
+bivariate_color_scale %<>%
+  separate(group, into = c("rate_per_100_000_population",
+                           "verse"),
+           sep = " - ") %>%
+  mutate(rate_per_100_000_population =
+           as.integer(rate_per_100_000_population),
+         verse =
+           as.integer(verse))
+
+```
+```{r}
+legend <- ggplot() +
+  geom_tile(
+    data = bivariate_color_scale,
+    mapping = aes(
+      x = rate_per_100_000_population,
+      y = verse,
+      fill = fill)
+  ) +
+  scale_fill_identity() +
+  labs(x = "More unhealthy food >",
+       y = "More deprived >") +
+  # make font small enough
+  theme(
+    axis.title = element_text(size = 8),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    axis.ticks.x=element_blank(),
+    axis.ticks.y=element_blank(),
+    panel.background = element_blank()
+  ) + 
+  # quadratic tiles
+  coord_fixed()# Graph scaling transformation
+```
+
+#Combine Map and Legend
+
+```{r}
+ggdraw() +
+  draw_plot(map, 0, 0, 1, 1) +
+  draw_plot(legend, 0.05, 0.075, 0.2, 0.2)
+```
+```{r}
+ggsave("pic/social inequality.jpg")
+```
